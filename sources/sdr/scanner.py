@@ -67,8 +67,8 @@ def __scan(device, **kwargs):
     ignored_frequencies_ranges = kwargs["ignored_frequencies_ranges"]
 
     recording = False
-    best_frequencies = np.zeros(shape=0, dtype=np.int)
-    best_powers = np.zeros(shape=0, dtype=np.float)
+    best_frequencies = np.zeros(shape=0, dtype=np.int_)
+    best_powers = np.zeros(shape=0, dtype=np.float_)
     for _range in kwargs["frequencies_ranges"]:
         start = _range["start"]
         stop = _range["stop"]
