@@ -1,6 +1,6 @@
-# DEPRECATED
+#updated 5-2-2023
 
-Project is no longer maintained. Please visit ***new version of project*** written in c++ here [rtl-sdr-scanner-cpp](https://github.com/shajen/rtl-sdr-scanner-cpp).
+Updated to work with latest version of numpy
 
 # rtl-sdr scanner and recorder
 
