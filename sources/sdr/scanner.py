@@ -121,19 +121,41 @@ def __filter_ranges(**kwargs):
 
 
 def run(**kwargs):
+    logger = logging.getLogger("sdr")
+
     sdr.tools.print_ignored_frequencies(kwargs["ignored_frequencies_ranges"])
     sdr.tools.print_frequencies_ranges(kwargs["frequencies_ranges"])
     sdr.tools.separator("scanning started")
     kwargs["frequencies_ranges"] = __filter_ranges(**kwargs)
+
+    # NEW: pick device index from env var SCANNER_DEVICE_INDEX
+    dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
     try:
-        device = rtlsdr.RtlSdr()
+        dev_index = int(dev_index_env) if dev_index_env is not None else 0
+    except ValueError:
+        dev_index = 0
+
+    logger.info(
+        "Opening RTL-SDR device index %d (from SCANNER_DEVICE_INDEX=%r)",
+        dev_index,
+        dev_index_env,
+    )
+
+    try:
+        # Use explicit device index instead of the implicit index 0
+        device = rtlsdr.RtlSdr(dev_index)
         device.ppm_error = kwargs["ppm_error"]
         device.gain = kwargs["tuner_gain"]
         device.sample_rate = kwargs["bandwidth"]
+
         killer = application_killer.ApplicationKiller()
         while killer.is_running:
             __scan(device, **kwargs)
+
     except rtlsdr.rtlsdr.LibUSBError as e:
-        logger = logging.getLogger("sdr")
-        logger.critical("Device error, error message: " + str(e) + " quitting!")
+        logger.critical(
+            "Device error for RTL-SDR index %d, error message: %s quitting!",
+            dev_index,
+            str(e),
+        )
         exit(1)
