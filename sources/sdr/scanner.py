@@ -128,12 +128,15 @@ def run(**kwargs):
     sdr.tools.separator("scanning started")
     kwargs["frequencies_ranges"] = __filter_ranges(**kwargs)
 
-    # NEW: pick device index from env var SCANNER_DEVICE_INDEX
+    # Pick device index from env var SCANNER_DEVICE_INDEX
     dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
     try:
         dev_index = int(dev_index_env) if dev_index_env is not None else 0
     except ValueError:
         dev_index = 0
+
+    # 💥 This is the missing link: pass device_index down to recorder via kwargs
+    kwargs["device_index"] = dev_index
 
     logger.info(
         "Opening RTL-SDR device index %d (from SCANNER_DEVICE_INDEX=%r)",
@@ -159,3 +162,4 @@ def run(**kwargs):
             str(e),
         )
         exit(1)
+
