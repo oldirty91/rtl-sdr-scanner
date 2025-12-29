@@ -128,32 +128,52 @@ def run(**kwargs):
     sdr.tools.separator("scanning started")
     kwargs["frequencies_ranges"] = __filter_ranges(**kwargs)
 
-    # See how many devices librtlsdr actually sees
+    # Count devices
     try:
         dev_count = rtlsdr.RtlSdr.get_device_count()
     except Exception as e:
         dev_count = -1
         logger.warning("Could not get RTL-SDR device count: %s", e)
 
-    # Pick device index from env var SCANNER_DEVICE_INDEX
+    # Optional: device serial from env
+    dev_serial_env = os.getenv("SCANNER_DEVICE_SERIAL")
+
+    # Fallback: device index from env
     dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
     try:
         dev_index = int(dev_index_env) if dev_index_env is not None else 0
     except ValueError:
         dev_index = 0
 
-    kwargs["device_index"] = dev_index  # pass down to recorder
+    # Pass both into kwargs for recorder
+    kwargs["device_index"] = dev_index
+    if dev_serial_env:
+        kwargs["device_serial"] = dev_serial_env
 
     logger.info(
-        "RTL-SDR device_count=%s, requested_index=%d (SCANNER_DEVICE_INDEX=%r)",
+        "RTL-SDR device_count=%s, requested_index=%d (SCANNER_DEVICE_INDEX=%r), "
+        "requested_serial=%r (SCANNER_DEVICE_SERIAL)",
         dev_count,
         dev_index,
         dev_index_env,
+        dev_serial_env,
     )
 
     try:
-        # Use explicit device index
-        device = rtlsdr.RtlSdr(dev_index)
+        # Prefer opening by serial if given
+        if dev_serial_env:
+            logger.info(
+                "Opening RTL-SDR by serial %r (SCANNER_DEVICE_SERIAL)",
+                dev_serial_env,
+            )
+            device = rtlsdr.RtlSdr(serial_number=dev_serial_env)
+        else:
+            logger.info(
+                "Opening RTL-SDR by index %d (SCANNER_DEVICE_INDEX=%r)",
+                dev_index,
+                dev_index_env,
+            )
+            device = rtlsdr.RtlSdr(dev_index)
 
         # Try to log usb strings / actual index if available
         usb_info = None
@@ -184,10 +204,12 @@ def run(**kwargs):
 
     except rtlsdr.rtlsdr.LibUSBError as e:
         logger.critical(
-            "Device error for RTL-SDR index %d, error message: %s quitting!",
+            "Device error (index=%d, serial=%r), message: %s quitting!",
             dev_index,
+            dev_serial_env,
             str(e),
         )
         exit(1)
+
 
 
