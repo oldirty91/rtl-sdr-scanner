@@ -39,7 +39,7 @@ def record(device, frequency, power, config, **kwargs):
     # Prefer serial if available, else index
     if device_serial:
         logger.info("using rtl_fm on RTL-SDR serial %s", device_serial)
-        rtl_fm_cmd += ["-d", f"serial={device_serial}"]
+        rtl_fm_cmd += ["-d", f"{device_serial}"]
     elif device_index is not None:
         logger.info("using rtl_fm on RTL-SDR device index %s", device_index)
         rtl_fm_cmd += ["-d", str(device_index)]
