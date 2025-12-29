@@ -59,13 +59,11 @@ def __detect_best_signal(frequencies, powers, filtered_frequencies, filtered_pow
             noise_level = -100
 
     for i in range(len(filtered_frequencies)):
-        return (
-            int(filtered_frequencies[i]),
-            float(filtered_powers[i]),
-            noise_level < float(filtered_powers[i]),
-        )
+        # (freq, power, is_above_noise)
+        return (int(filtered_frequencies[i]), float(filtered_powers[i]), noise_level < float(filtered_powers[i]))
 
-    return (0, -100.0, 0, False)
+    # Fallback (no signals)
+    return (0, -100.0, False)
 
 
 def __scan(device, **kwargs):
@@ -74,21 +72,26 @@ def __scan(device, **kwargs):
     filter_best_frequencies = kwargs["filter_best_frequencies"]
     bandwidth = kwargs["bandwidth"]
     disable_recording = kwargs["disable_recording"]
+    ignored_frequencies_ranges = kwargs["ignored_frequencies_ranges"]
 
     recording = False
-    # np.int / np.float are deprecated; use explicit dtypes
-    best_frequencies = np.zeros(shape=0, dtype=np.int64)
-    best_powers = np.zeros(shape=0, dtype=np.float64)
+    best_frequencies = np.zeros(shape=0, dtype=np.int)
+    best_powers = np.zeros(shape=0, dtype=np.float)
 
     for _range in kwargs["frequencies_ranges"]:
         start = _range["start"]
         stop = _range["stop"]
         for substart in range(start, stop, bandwidth):
             frequencies, powers = __get_frequency_power(
-                device, substart, substart + bandwidth, **kwargs
+                device,
+                substart,
+                substart + bandwidth,
+                **kwargs,
             )
             filtered_frequencies, filtered_powers = __filter_frequencies(
-                frequencies, powers, **kwargs
+                frequencies,
+                powers,
+                **kwargs,
             )
             (frequency, power, _recording) = __detect_best_signal(
                 frequencies,
@@ -99,9 +102,7 @@ def __scan(device, **kwargs):
             )
 
             recording = recording or _recording
-            best_frequencies = np.concatenate(
-                (best_frequencies, filtered_frequencies)
-            )
+            best_frequencies = np.concatenate((best_frequencies, filtered_frequencies))
             best_powers = np.concatenate((best_powers, filtered_powers))
 
             if _recording and not disable_recording:
@@ -117,7 +118,8 @@ def __scan(device, **kwargs):
         for i in range(len(best_frequencies)):
             logger.debug(
                 sdr.tools.format_frequency_power(
-                    int(best_frequencies[i]), float(best_powers[i])
+                    int(best_frequencies[i]),
+                    float(best_powers[i]),
                 )
             )
         if 1 < print_best_frequencies:
@@ -148,22 +150,6 @@ def __filter_ranges(**kwargs):
 
 
 def run(**kwargs):
-    """
-    Main scan loop.
-
-    Device selection logic:
-
-      - Read SCANNER_DEVICE_SERIAL and SCANNER_DEVICE_INDEX from env.
-      - If serial is set:
-          * Ask pyrtlsdr for all device serials
-          * Find the matching index
-          * Open device by that index
-      - Else:
-          * Use SCANNER_DEVICE_INDEX (or 0)
-
-    We still pass both device_index and device_serial into kwargs so
-    recorder.py can use them for rtl_fm.
-    """
     logger = logging.getLogger("sdr")
 
     sdr.tools.print_ignored_frequencies(kwargs["ignored_frequencies_ranges"])
@@ -171,86 +157,82 @@ def run(**kwargs):
     sdr.tools.separator("scanning started")
     kwargs["frequencies_ranges"] = __filter_ranges(**kwargs)
 
-    # Count devices
+    # ------------------------------------------------------------------
+    # Device selection: prefer SCANNER_DEVICE_SERIAL, fallback to index
+    # ------------------------------------------------------------------
+    dev_serial_env = os.getenv("SCANNER_DEVICE_SERIAL")
+    dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
+
+    try:
+        dev_index = int(dev_index_env) if dev_index_env is not None else 1
+    except ValueError:
+        dev_index = 1
+
+    # Log device count and serial addresses for debugging
     try:
         dev_count = rtlsdr.RtlSdr.get_device_count()
     except Exception as e:
         dev_count = -1
         logger.warning("Could not get RTL-SDR device count: %s", e)
 
-    # Env: preferred serial + index
-    dev_serial_env = os.getenv("SCANNER_DEVICE_SERIAL")
-    dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
-
-    # Base index
+    serial_addrs = []
     try:
-        dev_index = int(dev_index_env) if dev_index_env is not None else 0
-    except ValueError:
-        dev_index = 0
+        serial_addrs = rtlsdr.RtlSdr.get_device_serial_addresses()
+    except Exception as e:
+        logger.warning("Could not get RTL-SDR serial addresses: %s", e)
+        serial_addrs = []
 
-    resolved_from_serial = False
-
-    # If we got a serial from the outer tool, try to resolve it to an index
-    if dev_serial_env:
-        serial_str = str(dev_serial_env).strip()
-        try:
-            serial_list = rtlsdr.RtlSdr.get_device_serial_addresses()
-        except Exception as e:
-            serial_list = None
-            logger.warning(
-                "Could not get device serial list from pyrtlsdr: %s", e
-            )
-
-        if serial_list:
-            # serial_list is typically a list of strings
-            if serial_str in serial_list:
-                dev_index = serial_list.index(serial_str)
-                resolved_from_serial = True
-                logger.info(
-                    "Resolved SCANNER_DEVICE_SERIAL=%r to device_index=%d "
-                    "via pyrtlsdr serial list %r",
-                    serial_str,
-                    dev_index,
-                    serial_list,
-                )
-            else:
-                logger.warning(
-                    "SCANNER_DEVICE_SERIAL=%r not found in pyrtlsdr serial list %r; "
-                    "falling back to device_index=%d",
-                    serial_str,
-                    serial_list,
-                    dev_index,
-                )
+    # Normalize serial addresses into strings for logging
+    serial_strs = []
+    for s in serial_addrs:
+        if isinstance(s, bytes):
+            serial_strs.append(s.decode("utf-8", "ignore"))
         else:
-            logger.warning(
-                "No serial list available from pyrtlsdr; using "
-                "device_index=%d for SCANNER_DEVICE_SERIAL=%r",
-                dev_index,
-                serial_str,
-            )
+            serial_strs.append(str(s))
 
-    # Pass through to recorder via kwargs
+    logger.info(
+        "RTL-SDR device_count=%s, serial_addresses=%r, "
+        "SCANNER_DEVICE_SERIAL=%r, SCANNER_DEVICE_INDEX=%r (parsed index=%d)",
+        dev_count,
+        serial_strs,
+        dev_serial_env,
+        dev_index_env,
+        dev_index,
+    )
+
+    # Expose both to recorder via kwargs
     kwargs["device_index"] = dev_index
     if dev_serial_env:
         kwargs["device_serial"] = dev_serial_env
 
-    logger.info(
-        "RTL-SDR device_count=%s, final device_index=%d "
-        "(SCANNER_DEVICE_INDEX env=%r, resolved_from_serial=%s, "
-        "SCANNER_DEVICE_SERIAL=%r)",
-        dev_count,
-        dev_index,
-        dev_index_env,
-        resolved_from_serial,
-        dev_serial_env,
-    )
+    # ------------------------------------------------------------------
+    # Open the device
+    # ------------------------------------------------------------------
+    device = None
+    opened_by = None
 
     try:
-        # Always open by index; we've already resolved serial → index if needed
-        logger.info("Opening RTL-SDR by index %d", dev_index)
-        device = rtlsdr.RtlSdr(dev_index)
+        if dev_serial_env:
+            # HARD preference: open by serial, exactly like the docs example:
+            #   RtlSdr(serial_number='00000001')
+            logger.info(
+                "Opening RTL-SDR via pyrtlsdr using serial_number=%r "
+                "(SCANNER_DEVICE_SERIAL)",
+                dev_serial_env,
+            )
+            device = rtlsdr.RtlSdr(serial_number=dev_serial_env)
+            opened_by = f"serial:{dev_serial_env}"
+        else:
+            logger.info(
+                "Opening RTL-SDR via pyrtlsdr using index=%d "
+                "(SCANNER_DEVICE_INDEX=%r, default 0 if unset/invalid)",
+                dev_index,
+                dev_index_env,
+            )
+            device = rtlsdr.RtlSdr(dev_index)
+            opened_by = f"index:{dev_index}"
 
-        # Try to log usb strings / actual index if available
+        # Try to log actual USB info + internal index
         usb_info = None
         try:
             usb_info = device.get_usb_strings()
@@ -263,12 +245,13 @@ def run(**kwargs):
             real_index = None
 
         logger.info(
-            "Opened RTL-SDR: requested_index=%d, real_index=%r, usb_strings=%r",
-            dev_index,
+            "RTL-SDR opened (opened_by=%s): device_index=%r, usb_strings=%r",
+            opened_by,
             real_index,
             usb_info,
         )
 
+        # Normal device config
         device.ppm_error = kwargs["ppm_error"]
         device.gain = kwargs["tuner_gain"]
         device.sample_rate = kwargs["bandwidth"]
@@ -279,9 +262,17 @@ def run(**kwargs):
 
     except rtlsdr.rtlsdr.LibUSBError as e:
         logger.critical(
-            "Device error (index=%d, serial=%r), message: %s quitting!",
+            "Device error (opened_by=%s, requested_index=%d, SCANNER_DEVICE_SERIAL=%r), message: %s quitting!",
+            opened_by,
             dev_index,
             dev_serial_env,
             str(e),
         )
         exit(1)
+    except Exception as e:
+        logger.critical(
+            "Unexpected error while opening/using RTL-SDR (opened_by=%s): %s",
+            opened_by,
+            e,
+        )
+        raise
