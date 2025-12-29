@@ -23,21 +23,24 @@ def record(device, frequency, power, config, **kwargs):
     samples_rate = kwargs["samples_rate"]
     modulation = config["modulation"]
 
-    # NEW: device index from scanner.run(...)
+    # NEW: device index / serial from scanner.run(...)
     device_index = kwargs.get("device_index", None)
+    device_serial = kwargs.get("device_serial", None)
 
     now = datetime.datetime.now()
     dir = "%s/%04d-%02d-%02d" % (dir, now.year, now.month, now.day)
     os.makedirs(dir, exist_ok=True)
     filename = "%s/%02d_%02d_%02d_%09d.wav" % (dir, now.hour, now.minute, now.second, frequency)
 
-    # Close rtlsdr object while rtl_fm owns the device
     device.close()
 
-    # Build rtl_fm command, including -d <index> if available
     rtl_fm_cmd = ["rtl_fm"]
 
-    if device_index is not None:
+    # Prefer serial if available, else index
+    if device_serial:
+        logger.info("using rtl_fm on RTL-SDR serial %s", device_serial)
+        rtl_fm_cmd += ["-d", f"serial={device_serial}"]
+    elif device_index is not None:
         logger.info("using rtl_fm on RTL-SDR device index %s", device_index)
         rtl_fm_cmd += ["-d", str(device_index)]
 
@@ -89,7 +92,6 @@ def record(device, frequency, power, config, **kwargs):
             os.remove(filename)
             logger.warning("recording time too short, removing")
 
-    # Re-open rtl-sdr device on the same index as before
     device.open()
     device.ppm_error = kwargs["ppm_error"]
     device.gain = kwargs["tuner_gain"]
