@@ -128,6 +128,13 @@ def run(**kwargs):
     sdr.tools.separator("scanning started")
     kwargs["frequencies_ranges"] = __filter_ranges(**kwargs)
 
+    # See how many devices librtlsdr actually sees
+    try:
+        dev_count = rtlsdr.RtlSdr.get_device_count()
+    except Exception as e:
+        dev_count = -1
+        logger.warning("Could not get RTL-SDR device count: %s", e)
+
     # Pick device index from env var SCANNER_DEVICE_INDEX
     dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
     try:
@@ -135,18 +142,38 @@ def run(**kwargs):
     except ValueError:
         dev_index = 0
 
-    # 💥 This is the missing link: pass device_index down to recorder via kwargs
-    kwargs["device_index"] = dev_index
+    kwargs["device_index"] = dev_index  # pass down to recorder
 
     logger.info(
-        "Opening RTL-SDR device index %d (from SCANNER_DEVICE_INDEX=%r)",
+        "RTL-SDR device_count=%s, requested_index=%d (SCANNER_DEVICE_INDEX=%r)",
+        dev_count,
         dev_index,
         dev_index_env,
     )
 
     try:
-        # Use explicit device index instead of the implicit index 0
+        # Use explicit device index
         device = rtlsdr.RtlSdr(dev_index)
+
+        # Try to log usb strings / actual index if available
+        usb_info = None
+        try:
+            usb_info = device.get_usb_strings()
+        except Exception:
+            usb_info = None
+
+        try:
+            real_index = getattr(device, "device_index", None)
+        except Exception:
+            real_index = None
+
+        logger.info(
+            "Opened RTL-SDR: requested_index=%d, real_index=%r, usb_strings=%r",
+            dev_index,
+            real_index,
+            usb_info,
+        )
+
         device.ppm_error = kwargs["ppm_error"]
         device.gain = kwargs["tuner_gain"]
         device.sample_rate = kwargs["bandwidth"]
@@ -162,4 +189,5 @@ def run(**kwargs):
             str(e),
         )
         exit(1)
+
 
