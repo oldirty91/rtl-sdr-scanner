@@ -50,6 +50,8 @@ def record(device, frequency, power, config, **kwargs):
         "-l", squelch,
     ]
 
+    logger.info("rtl_fm cmd: %s", " ".join(rtl_fm_cmd))
+
     p1 = subprocess.Popen(
         rtl_fm_cmd,
         stdout=subprocess.PIPE,
