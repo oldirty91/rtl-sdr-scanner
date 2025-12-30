@@ -256,9 +256,9 @@ def run(**kwargs):
     # Fallback: device index from env
     dev_index_env = os.getenv("SCANNER_DEVICE_INDEX")
     try:
-        dev_index = int(dev_index_env) if dev_index_env is not None else 0
+        dev_index = int(dev_index_env) if dev_index_env is not None else 1
     except ValueError:
-        dev_index = 0
+        dev_index = 3
 
     # Expose to recorder
     kwargs["device_index"] = dev_index
